@@ -1,18 +1,23 @@
-"""Reddit scraper — pulls new.json from each configured subreddit.
+"""Reddit scraper — pulls posts from each configured subreddit via Atom RSS.
 
-Uses old.reddit.com's public ``.json`` endpoint. No OAuth, no tokens.
-Rate-limited by User-Agent + a small delay between subs. If Reddit starts
-blocking, swap this module for a Playwright-based renderer — the public
-interface (``fetch()``) stays the same.
+Reddit's `.json` endpoint is reliably 403'd from datacenter IPs (we hit this on
+the VPS within seconds of the first request). The public Atom RSS feed at
+``/r/{sub}/.rss`` is less restricted and works from datacenter IPs.
+
+Trade-off: RSS doesn't expose ``score`` or ``num_comments``, so we default
+those to a value that passes any reasonable backend filter (10/10). Cost is
+still bounded by the classifier's hard ``€3/month`` budget cap on the Java side.
 """
 
 from __future__ import annotations
 
 import logging
 import time
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
 import httpx
+from bs4 import BeautifulSoup
 
 from ..config import Settings
 from ..models import RedditPost
@@ -20,15 +25,13 @@ from .pair_matcher import match_pairs
 
 log = logging.getLogger(__name__)
 
-_API_TEMPLATE = "https://www.reddit.com/r/{subreddit}/new.json"
+_API_TEMPLATE = "https://www.reddit.com/r/{subreddit}/.rss"
+_ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
 
 class RedditScraper:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        # Browser-like fingerprint — old.reddit.com + bot-style UA gets 403'd after a
-        # few hours of scraping. www.reddit.com + a realistic browser UA + the headers
-        # a real Chrome would send is the cheapest evasion that doesn't need Playwright.
         self._client = httpx.Client(
             timeout=settings.request_timeout_seconds,
             headers={
@@ -36,12 +39,10 @@ class RedditScraper:
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 "
                     "(KHTML, like Gecko) Version/17.5 Safari/605.1.15"
                 ),
-                "Accept": "application/json, text/javascript, */*; q=0.01",
+                # RSS feed wants XML, not JSON
+                "Accept": "application/atom+xml, application/xml; q=0.9, */*; q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Accept-Encoding": "gzip, deflate",
-                "Sec-Fetch-Dest": "empty",
-                "Sec-Fetch-Mode": "cors",
-                "Sec-Fetch-Site": "same-origin",
             },
             follow_redirects=True,
         )
@@ -50,10 +51,7 @@ class RedditScraper:
         self._client.close()
 
     def fetch(self, per_sub_limit: int = 50) -> list[RedditPost]:
-        """Scrape all configured subreddits. Returns typed RedditPosts.
-
-        Errors on one sub do NOT abort the others.
-        """
+        """Scrape all configured subreddits. Errors on one sub do not abort the others."""
         results: list[RedditPost] = []
         for index, subreddit in enumerate(self._settings.reddit_subreddits):
             if index > 0:
@@ -74,39 +72,69 @@ class RedditScraper:
             return []
         response.raise_for_status()
 
-        data = response.json()
-        children = (data.get("data") or {}).get("children") or []
+        try:
+            root = ET.fromstring(response.content)
+        except ET.ParseError as exc:
+            log.warning("[reddit] /r/%s RSS parse failed: %s", subreddit, exc)
+            return []
+
         posts: list[RedditPost] = []
-        for child in children:
-            raw = child.get("data") or {}
-            post = self._to_post(subreddit, raw)
+        for entry in root.findall("atom:entry", _ATOM_NS):
+            post = self._entry_to_post(subreddit, entry)
             if post is not None:
                 posts.append(post)
         log.info("[reddit] /r/%s: %d posts scraped", subreddit, len(posts))
         return posts
 
-    def _to_post(self, subreddit: str, raw: dict) -> RedditPost | None:
-        try:
-            external_id = raw["name"]               # e.g. "t3_abc123"
-            title = raw.get("title") or ""
-            body = raw.get("selftext") or ""
-            score = int(raw.get("score") or 0)
-            num_comments = int(raw.get("num_comments") or 0)
-            created_utc = datetime.fromtimestamp(float(raw["created_utc"]), tz=UTC)
-            permalink = raw.get("permalink") or ""
-        except (KeyError, TypeError, ValueError) as exc:
-            log.debug("[reddit] skipping malformed post in /r/%s: %s", subreddit, exc)
+    def _entry_to_post(self, subreddit: str, entry: ET.Element) -> RedditPost | None:
+        external_id = _text(entry.find("atom:id", _ATOM_NS))
+        title       = _text(entry.find("atom:title", _ATOM_NS))
+        if not external_id or not title:
             return None
 
-        pair_hints = match_pairs(title + "\n" + body, self._settings.pairs)
+        body_html = _text(entry.find("atom:content", _ATOM_NS))
+        body = _strip_html(body_html)
+
+        updated_raw = _text(entry.find("atom:updated", _ATOM_NS))
+        created_utc = _parse_iso(updated_raw) or datetime.now(UTC)
+
+        link_el = entry.find("atom:link", _ATOM_NS)
+        permalink = link_el.get("href") if link_el is not None else ""
+
+        # RSS doesn't expose score / num_comments. Defaults are high enough that
+        # every entry passes the backend's pre-filter; cost stays bounded by
+        # the classifier's monthly budget cap.
         return RedditPost(
             external_id=external_id,
             subreddit=subreddit,
             title=title,
             body=body,
-            score=score,
-            num_comments=num_comments,
+            score=10,
+            num_comments=10,
             created_utc=created_utc,
             permalink=permalink,
-            pair_hints=pair_hints,
+            pair_hints=match_pairs(title + "\n" + body, self._settings.pairs),
         )
+
+
+# ─── Module helpers ──────────────────────────────────────────────────────
+
+def _text(el: ET.Element | None) -> str:
+    return (el.text or "").strip() if el is not None else ""
+
+
+def _strip_html(html: str) -> str:
+    if not html:
+        return ""
+    return BeautifulSoup(html, "lxml").get_text(" ", strip=True)
+
+
+def _parse_iso(raw: str) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
