@@ -42,7 +42,7 @@ _RATE_LIMIT_PAUSE_CAP_SEC = 630.0
 class RedditScraper:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        proxy = settings.reddit_http_proxy.strip() or None
+        proxy = settings.http_proxy.strip() or None
         if proxy:
             log.info("[reddit] egress via proxy %s", proxy)
 

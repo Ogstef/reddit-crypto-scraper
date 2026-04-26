@@ -33,12 +33,12 @@ class Settings(BaseSettings):
     request_timeout_seconds: int = 30
     max_retries: int = 3
 
-    # ── Reddit egress proxy (for VPS deploys behind a reverse SSH tunnel) ─
+    # ── Outbound scraping proxy (for VPS deploys behind a reverse SSH tunnel) ─
     # When set, Reddit requests are routed through this HTTP proxy so they
     # appear to originate from a residential IP rather than the VPS's
     # datacenter IP (which Reddit blocks at the network layer).
-    # Empty (default) means direct egress.
-    reddit_http_proxy: str = ""
+    # Env var: SCRAPER_HTTP_PROXY. Empty (default) means direct egress.
+    http_proxy: str = ""
 
     # ── Batching ─────────────────────────────────────────────────────────
     max_batch_size: int = 100
