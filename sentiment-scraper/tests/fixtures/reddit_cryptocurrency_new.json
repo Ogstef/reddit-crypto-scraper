@@ -1,0 +1,43 @@
+{
+  "kind": "Listing",
+  "data": {
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "name": "t3_aaa111",
+          "title": "Bitcoin breaks $100k — BTC on fire",
+          "selftext": "Massive rally in BTC today.",
+          "score": 42,
+          "num_comments": 7,
+          "created_utc": 1714000000,
+          "permalink": "/r/CryptoCurrency/comments/aaa111/bitcoin_breaks_100k/"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "name": "t3_bbb222",
+          "title": "Ethereum 2.0 staking guide",
+          "selftext": "How to stake ETH safely.",
+          "score": 15,
+          "num_comments": 3,
+          "created_utc": 1714000500,
+          "permalink": "/r/CryptoCurrency/comments/bbb222/ethereum_staking_guide/"
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "name": "t3_ccc333",
+          "title": "Unrelated meme post about coffee",
+          "selftext": "",
+          "score": 2,
+          "num_comments": 0,
+          "created_utc": 1714000900,
+          "permalink": "/r/CryptoCurrency/comments/ccc333/coffee/"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+# Local environment file — contains the shared bearer token. NEVER commit.
+.env
+
+# Python virtualenv
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# IntelliJ project files
+.idea/
+
+# pytest cache
+.pytest_cache/
+
+# Local dedup cache (also lives at ~/.cache/sentiment-scraper/ by default)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+
+# Build artefacts
+*.egg-info/
+build/
+dist/

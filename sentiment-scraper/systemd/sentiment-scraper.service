@@ -1,0 +1,22 @@
+[Unit]
+Description=Reddit + CryptoPanic scraper → revolut-trading-bot ingest
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=20
+EnvironmentFile=/etc/sentiment-scraper/env
+ExecStartPre=-/usr/bin/docker rm -f sentiment-scraper
+ExecStart=/usr/bin/docker run --rm \
+    --name sentiment-scraper \
+    --env-file /etc/sentiment-scraper/env \
+    -v sentiment-scraper-dedup:/var/lib/sentiment-scraper \
+    sentiment-scraper:latest
+ExecStop=/usr/bin/docker stop -t 10 sentiment-scraper
+
+[Install]
+WantedBy=multi-user.target
