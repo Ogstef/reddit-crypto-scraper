@@ -13,6 +13,7 @@ EnvironmentFile=/etc/sentiment-scraper/env
 ExecStartPre=-/usr/bin/docker rm -f sentiment-scraper
 ExecStart=/usr/bin/docker run --rm \
     --name sentiment-scraper \
+    --network host \
     --env-file /etc/sentiment-scraper/env \
     -v sentiment-scraper-dedup:/var/lib/sentiment-scraper \
     sentiment-scraper:latest
